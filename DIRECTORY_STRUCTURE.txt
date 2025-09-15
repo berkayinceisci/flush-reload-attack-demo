@@ -15,8 +15,6 @@ cache_attack_demo/
 └── docs/                           - Documentation directory
     └── TECHNICAL_DETAILS.md        (8.1K) - Technical implementation details
 
-TOTAL SIZE: ~2.3MB
-
 USAGE:
 1. cd cache_attack_demo
 2. make         # Build both programs

@@ -1,6 +1,9 @@
 # Cache Side-Channel Attack Demo
 
-This is a complete, standalone demonstration of a **Flush+Reload cache side-channel attack** against the libgcrypt cryptographic library. The demo consists of two processes: a victim performing AES encryption and an attacker monitoring cache activity to infer cryptographic operations.
+This is a complete, standalone demonstration of **Flush+Reload cache side-channel attacks** against the libgcrypt cryptographic library. The demo includes two attack scenarios:
+
+1. **AES Cache Attack**: Generic cache monitoring of AES encryption functions
+2. **RSA Key Recovery Attack**: Targeted attack on RSA square-and-multiply operations to recover private key bits
 
 ## 🚨 **IMPORTANT DISCLAIMER**
 
@@ -13,8 +16,10 @@ cache_attack_demo/
 ├── Makefile              # Build system
 ├── README.md            # This file
 ├── src/                 # Source code
-│   ├── victim.c         # Target process (AES encryption)
-│   ├── attacker.c       # Malicious process (cache monitoring)
+│   ├── victim.c         # AES victim process
+│   ├── attacker.c       # AES attacker process
+│   ├── victim_rsa.c     # RSA victim process
+│   ├── attacker_rsa.c   # RSA key recovery attacker
 │   ├── gcrypt.h         # libgcrypt header
 │   └── gcrypt-module.h  # libgcrypt module header
 ├── lib/                 # Shared library
@@ -41,15 +46,20 @@ make install-deps
 # Build everything
 make
 
-# Run complete demo
+# Run AES cache attack demo
 make demo
 
-# Or run components separately:
-# Terminal 1:
-make test-victim
+# Run RSA key recovery attack demo
+make demo-rsa
 
-# Terminal 2:
-make test-attacker
+# Or run components separately:
+# AES Attack:
+# Terminal 1: make test-victim
+# Terminal 2: make test-attacker
+
+# RSA Key Recovery Attack:
+# Terminal 1: make test-victim-rsa
+# Terminal 2: make test-attacker-rsa
 ```
 
 ## 🔧 **Available Make Targets**
