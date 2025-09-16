@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -70,26 +71,23 @@ int main() {
     // Prepare test message
     const char *test_msg = "Hello, RSA World! This is a test message for side-channel analysis.";
 
+    // Create message as MPI for direct RSA operations
+    err = gcry_sexp_build(&data_sexp, NULL, "(data (flags raw) (value %s))", test_msg);
+    if (err) {
+        fprintf(stderr, "Failed to build data s-expression: %s\n", gcry_strerror(err));
+        return 1;
+    }
+
+    // RSA ENCRYPTION (triggers modular exponentiation with public exponent)
+    err = gcry_pk_encrypt(&encrypted_sexp, data_sexp, rsa_pubkey);
+    if (err) {
+        fprintf(stderr, "RSA encryption failed: %s\n", gcry_strerror(err));
+        gcry_sexp_release(data_sexp);
+        return 1;
+    }
+
     int iteration = 0;
     while (running) {
-        // Create message as MPI for direct RSA operations
-        err = gcry_sexp_build(&data_sexp, NULL, "(data (flags raw) (value %s))", test_msg);
-        if (err) {
-            fprintf(stderr, "Failed to build data s-expression: %s\n", gcry_strerror(err));
-            break;
-        }
-
-        // RSA ENCRYPTION (triggers modular exponentiation with public exponent)
-        err = gcry_pk_encrypt(&encrypted_sexp, data_sexp, rsa_pubkey);
-        if (err) {
-            fprintf(stderr, "RSA encryption failed: %s\n", gcry_strerror(err));
-            gcry_sexp_release(data_sexp);
-            break;
-        }
-
-        // Small delay to make attack more stable
-        usleep(500);
-
         // RSA DECRYPTION (triggers modular exponentiation with private exponent)
         // This is the critical operation that exposes the private key bits
         err = gcry_pk_decrypt(&decrypted_sexp, encrypted_sexp, rsa_privkey);
@@ -101,8 +99,6 @@ int main() {
         }
 
         // Clean up for this iteration
-        gcry_sexp_release(data_sexp);
-        gcry_sexp_release(encrypted_sexp);
         gcry_sexp_release(decrypted_sexp);
 
         iteration++;
@@ -115,6 +111,8 @@ int main() {
     }
 
     // Cleanup
+    gcry_sexp_release(data_sexp);
+    gcry_sexp_release(encrypted_sexp);
     gcry_sexp_release(rsa_pubkey);
     gcry_sexp_release(rsa_privkey);
     gcry_sexp_release(keypair);

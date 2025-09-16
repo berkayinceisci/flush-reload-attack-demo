@@ -15,7 +15,8 @@ LIBGCRYPT_FLAGS = -L$(LIBDIR) -lgcrypt -lgpg-error
 INCLUDES = -I$(SRCDIR)
 
 # Targets
-TARGETS = victim_aes attacker_aes victim_rsa attacker_rsa
+# TARGETS = victim_aes attacker_aes victim_rsa attacker_rsa
+TARGETS = victim_rsa attacker_rsa
 VICTIM_AES_SRC = $(SRCDIR)/victim_aes.c
 ATTACKER_AES_SRC = $(SRCDIR)/attacker_aes.c
 VICTIM_RSA_SRC = $(SRCDIR)/victim_rsa.c
@@ -25,19 +26,19 @@ ATTACKER_RSA_SRC = $(SRCDIR)/attacker_rsa.c
 all: $(TARGETS)
 
 # AES Victim process (uses libgcrypt)
-victim_aes: $(VICTIM_AES_SRC) | check-lib
+victim_aes: $(VICTIM_AES_SRC)
 	@echo "Building AES victim process..."
-	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $(BINDIR)/victim $(VICTIM_AES_SRC) $(LIBGCRYPT_FLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $(BINDIR)/victim_aes $(VICTIM_AES_SRC) $(LIBGCRYPT_FLAGS)
 	@echo "AES Victim built successfully!"
 
 # AES Attacker process (uses dlopen)
 attacker_aes: $(ATTACKER_AES_SRC)
 	@echo "Building AES attacker process..."
-	$(CC) $(CFLAGS) -o $(BINDIR)/attacker $(ATTACKER_AES_SRC) -ldl
+	$(CC) $(CFLAGS) -o $(BINDIR)/attacker_aes $(ATTACKER_AES_SRC) -ldl
 	@echo "AES Attacker built successfully!"
 
 # RSA Victim process (uses libgcrypt RSA)
-victim_rsa: $(VICTIM_RSA_SRC) | check-lib
+victim_rsa: $(VICTIM_RSA_SRC)
 	@echo "Building RSA victim process..."
 	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $(BINDIR)/victim_rsa $(VICTIM_RSA_SRC) $(LIBGCRYPT_FLAGS)
 	@echo "RSA victim built successfully!"
