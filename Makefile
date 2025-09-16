@@ -25,19 +25,19 @@ ATTACKER_RSA_SRC = $(SRCDIR)/attacker_rsa.c
 all: $(TARGETS)
 
 # AES Victim process (uses libgcrypt)
-victim_aes: $(VICTIM_AES_SRC) | check-deps
-	@echo "Building victim process..."
+victim_aes: $(VICTIM_AES_SRC) | check-lib
+	@echo "Building AES victim process..."
 	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $(BINDIR)/victim $(VICTIM_AES_SRC) $(LIBGCRYPT_FLAGS)
-	@echo "Victim built successfully!"
+	@echo "AES Victim built successfully!"
 
 # AES Attacker process (uses dlopen)
 attacker_aes: $(ATTACKER_AES_SRC)
-	@echo "Building attacker process..."
+	@echo "Building AES attacker process..."
 	$(CC) $(CFLAGS) -o $(BINDIR)/attacker $(ATTACKER_AES_SRC) -ldl
-	@echo "Attacker built successfully!"
+	@echo "AES Attacker built successfully!"
 
 # RSA Victim process (uses libgcrypt RSA)
-victim_rsa: $(VICTIM_RSA_SRC) | check-deps
+victim_rsa: $(VICTIM_RSA_SRC) | check-lib
 	@echo "Building RSA victim process..."
 	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $(BINDIR)/victim_rsa $(VICTIM_RSA_SRC) $(LIBGCRYPT_FLAGS)
 	@echo "RSA victim built successfully!"
@@ -48,13 +48,13 @@ attacker_rsa: $(ATTACKER_RSA_SRC)
 	$(CC) $(CFLAGS) -o $(BINDIR)/attacker_rsa $(ATTACKER_RSA_SRC) -ldl
 	@echo "RSA attacker built successfully!"
 
-check-deps:
+check-lib:
 	@if [ ! -f "$(LIBDIR)/libgcrypt.so.11.6.0" ]; then \
 		echo "Error: libgcrypt.so.11.6.0 not found in $(LIBDIR)"; \
 		echo "Please ensure the library file is present"; \
 		exit 1; \
 	fi
-	@echo "Dependencies check passed"
+	@echo "Library check passed"
 
 run-victim-aes: victim_aes
 	@echo "Running AES victim process (Ctrl+C to stop)..."
@@ -110,10 +110,10 @@ help:
 	@echo "  run-attacker-aes	- Run AES attacker process"
 	@echo "  run-victim-rsa		- Run RSA victim process"
 	@echo "  run-attacker-rsa	- Run RSA attacker process"
-	@echo "  check-deps    		- Check if the required library exists"
+	@echo "  check-lib    		- Check if the required library exists"
 	@echo "  clean         		- Remove build artifacts"
 	@echo "  install-deps  		- Install system dependencies (Ubuntu/Debian)"
 	@echo "  info          		- Show library information"
 	@echo "  help          		- Show this help message"
 
-.PHONY: all run-victim-aes run-attacker-aes run-victim-rsa run-attacker-rsa check-deps clean install-deps info help
+.PHONY: all run-victim-aes run-attacker-aes run-victim-rsa run-attacker-rsa check-lib clean install-deps info help
